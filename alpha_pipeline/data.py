@@ -43,6 +43,34 @@ def load_synthetic(
     return out
 
 
+def load_synthetic_drift(
+    tickers: tuple[str, ...],
+    n_days: int = 300,
+    seed: int = 0,
+    start: str = "2024-01-01",
+    drift_scale: float = 0.0015,
+) -> PriceData:
+    """Like load_synthetic but each ticker carries a fixed persistent drift, so
+    cross-sectional momentum is a genuine (detectable) edge. For meaningful
+    demos; pure random-walk data (load_synthetic) intentionally has no edge."""
+    import datetime as _dt
+
+    rng = random.Random(seed)
+    start_date = _dt.date.fromisoformat(start)
+    drifts = {t: rng.uniform(-drift_scale, drift_scale) for t in tickers}
+    out: PriceData = {}
+    for t in tickers:
+        price = 100.0
+        rows: list[PriceRow] = []
+        for i in range(n_days):
+            ret = drifts[t] + rng.gauss(0.0, 0.008)
+            price *= math.exp(ret)
+            vol = 1_000_000 * (0.5 + rng.random())
+            rows.append((str(start_date + _dt.timedelta(days=i)), price, vol))
+        out[t] = rows
+    return out
+
+
 def load_csv(path: str) -> PriceData:
     """Load from a CSV with columns: date, ticker, close, volume."""
     out: PriceData = defaultdict(list)
