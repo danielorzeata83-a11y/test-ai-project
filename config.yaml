@@ -1,0 +1,57 @@
+# Trading bot system configuration. All tunable parameters live here.
+# Parsed by config.py (stdlib, minimal YAML subset).
+
+universe:
+  # Breadth matters: IR ~= IC * sqrt(breadth). A handful of names can't clear
+  # the production Gate even with real IC. For the synthetic demo we use a wide
+  # set (SYN00..SYN39); on real data, replace with the full S&P 100.
+  names: [SYN00, SYN01, SYN02, SYN03, SYN04, SYN05, SYN06, SYN07, SYN08, SYN09, SYN10, SYN11, SYN12, SYN13, SYN14, SYN15, SYN16, SYN17, SYN18, SYN19, SYN20, SYN21, SYN22, SYN23, SYN24, SYN25, SYN26, SYN27, SYN28, SYN29, SYN30, SYN31, SYN32, SYN33, SYN34, SYN35, SYN36, SYN37, SYN38, SYN39]
+  source: synthetic_drift      # synthetic | synthetic_drift | synthetic_intraday | synthetic_fundamental | csv | yfinance | yfinance_intraday | alpaca | alphavantage
+  # For alphavantage intraday: set source: alphavantage, interval: 5min,
+  # outputsize: full, bars_per_day: 78, and export ALPHAVANTAGE_API_KEY.
+  # Free tier is ~5 req/min: `pause: 15` spaces out multi-ticker requests.
+  #
+  # Fundamentals for the quality alpha:
+  #   synthetic_fundamental  -> prices + synthetic fundamentals (offline demo)
+  #   fundamentals_source: alphavantage  -> live OVERVIEW fundamentals (snapshot;
+  #     see README caveat on point-in-time / lookahead for backtests)
+
+frequency:
+  # bars_per_day = 1 for daily; e.g. 78 for 5-minute US-session bars.
+  # Annualization everywhere uses periods_per_year = 252 * bars_per_day.
+  bars_per_day: 1
+
+analyst:
+  min_coverage: 0.8
+  max_return_spike: 0.5
+  min_history: 64
+
+signal:
+  top_frac: 0.2                 # top/bottom quintile long-short
+
+gate:
+  min_ic: 0.005
+  min_ic_ir: 0.05
+  min_t_stat: 3.0
+  min_decay_ratio: 0.3
+  cost_per_turnover: 0.0015     # 15 bps production threshold
+  min_net_sharpe: 0.5
+  min_dsr: 0.95
+  n_trials: 20
+  min_cpcv_fraction: 0.8
+  max_correlation: 0.6
+
+risk:
+  max_position: 0.05
+  max_gross: 2.0
+  target_vol: 0.10
+  regime_cut: 0.7
+  crisis_threshold: 0.5
+  max_drawdown: 0.15            # peak-to-trough breaker
+
+execution:
+  commission_bps: 1.0
+  slippage_bps: 5.0
+
+portfolio:
+  initial_cash: 100000.0
