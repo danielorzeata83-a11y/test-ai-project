@@ -49,7 +49,7 @@ class ExecutionBot:
             cost = abs(qty * price) * self._cost_rate
             trades.append(Trade(safe.date, t, qty, price, cost))
 
-        new_state = state.apply_trades(safe.date, tuple(trades)).mark_to_market(
-            safe.date, prices
-        )
+        # Pass the full price set as marks so untouched holdings are valued at
+        # today's prices, not zero.
+        new_state = state.apply_trades(safe.date, tuple(trades), marks=prices)
         return tuple(trades), new_state

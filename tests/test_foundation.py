@@ -55,6 +55,41 @@ class TestPortfolioMath(unittest.TestCase):
         self.assertEqual(s1.halt_reason, "drawdown breaker")
         self.assertFalse(s0.halted)  # original untouched
 
+    def test_partial_rebalance_values_untraded_holdings(self):
+        # Hold AAPL and MSFT, then trade only AAPL. MSFT must keep its real
+        # value via marks, not be valued at zero.
+        s0 = PortfolioState.initial("2024-01-01", 100_000.0)
+        s1 = s0.apply_trades(
+            "2024-01-02",
+            (Trade("2024-01-02", "AAPL", 10.0, 200.0, 0.0),
+             Trade("2024-01-02", "MSFT", 5.0, 100.0, 0.0)),
+        )
+        # Now trade only AAPL; provide marks for both held names.
+        s2 = s1.apply_trades(
+            "2024-01-03",
+            (Trade("2024-01-03", "AAPL", 5.0, 210.0, 0.0),),
+            marks={"AAPL": 210.0, "MSFT": 110.0},
+        )
+        # AAPL: 15 @ 210 = 3150; MSFT: 5 @ 110 = 550 (revalued, not zero).
+        expected_cash = 100_000.0 - 2000.0 - 500.0 - 5 * 210.0
+        self.assertAlmostEqual(s2.cash, expected_cash)
+        self.assertAlmostEqual(s2.nav, expected_cash + 3150.0 + 550.0)
+
+    def test_missing_mark_fails_closed(self):
+        # A held name with no trade and no mark must raise, not value at zero.
+        s0 = PortfolioState.initial("2024-01-01", 100_000.0)
+        s1 = s0.apply_trades(
+            "2024-01-02",
+            (Trade("2024-01-02", "MSFT", 5.0, 100.0, 0.0),),
+        )
+        with self.assertRaises(ValueError):
+            # Trade AAPL but give no mark for the still-held MSFT.
+            s1.apply_trades(
+                "2024-01-03",
+                (Trade("2024-01-03", "AAPL", 1.0, 200.0, 0.0),),
+                marks={"AAPL": 200.0},
+            )
+
 
 class TestContractValidation(unittest.TestCase):
     def test_bad_inputs_rejected_at_construction(self):

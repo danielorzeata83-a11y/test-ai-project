@@ -265,23 +265,28 @@ class PortfolioState:
             date=date, cash=cash, positions={}, nav=cash, peak_nav=cash
         )
 
-    def apply_trades(self, date: str, trades: tuple[Trade, ...]) -> "PortfolioState":
-        """Return a new state with trades applied. NAV is re-marked at the
-        trade prices (so the only NAV change is the cash spent on costs)."""
+    def apply_trades(
+        self, date: str, trades: tuple[Trade, ...],
+        marks: Mapping[str, float] | None = None,
+    ) -> "PortfolioState":
+        """Return a new state with trades applied. NAV is re-marked at the trade
+        prices, plus `marks` for any held name that didn't trade this cycle.
+
+        Fail-closed: if a resulting held position has neither a trade price nor a
+        mark, raise rather than silently valuing it at zero (which would corrupt
+        NAV, drawdown, and replay)."""
         new_cash = self.cash
         new_positions = dict(self.positions)
-        prices: dict[str, float] = {}
+        prices: dict[str, float] = dict(marks or {})
         for tr in trades:
             new_cash -= tr.quantity * tr.price + tr.cost
             new_positions[tr.ticker] = new_positions.get(tr.ticker, 0.0) + tr.quantity
-            prices[tr.ticker] = tr.price
+            prices[tr.ticker] = tr.price  # trade price overrides any stale mark
         new_positions = {t: q for t, q in new_positions.items() if abs(q) > 1e-12}
-        # Only traded names are repriced here; untraded holdings are revalued by
-        # the next mark_to_market. apply_trades is meant to be followed by a
-        # mark_to_market with the full price set when leftover holdings exist.
-        nav = new_cash + sum(
-            q * prices.get(t, 0.0) for t, q in new_positions.items()
-        )
+        missing = [t for t in new_positions if t not in prices]
+        if missing:
+            raise ValueError(f"no price/mark for held tickers {missing}")
+        nav = new_cash + sum(q * prices[t] for t, q in new_positions.items())
         return PortfolioState(
             date=date,
             cash=new_cash,
