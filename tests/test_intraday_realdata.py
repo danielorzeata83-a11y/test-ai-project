@@ -47,6 +47,40 @@ class TestIntradayData(unittest.TestCase):
         self.assertFalse(report.halted)
 
 
+class TestBuildHistoryAlignment(unittest.TestCase):
+    """build_history must align cross-sections by calendar date, not by list
+    position, so ragged per-ticker series don't pair mismatched days."""
+
+    def _const_score(self, feats):
+        # Score = a value the test injects per ticker, so we can detect whether
+        # a date pairs the right ticker rows.
+        return {t: f["close"] for t, f in feats.items()}
+
+    def test_ragged_dates_pair_same_calendar_day(self):
+        # B is missing one mid-series day; A is complete. With positional
+        # indexing the tail would misalign by one day after the gap.
+        def day(i):
+            return f"2024-{1 + i // 28:02d}-{1 + i % 28:02d}"
+
+        a = [(day(i), 100.0 + i, 1.0) for i in range(80)]
+        b = [(day(i), 200.0 + i, 1.0) for i in range(80) if i != 40]
+        prices = {"A": a, "B": b}
+
+        hist = ev.build_history(prices, self._const_score, horizon=1)
+        # Every cross-section's score for each ticker must equal that ticker's
+        # close on the cross-section's own date (proves date-aligned lookup).
+        a_by_date = {d: c for d, c, _ in a}
+        b_by_date = {d: c for d, c, _ in b}
+        for cross in hist:
+            d = cross["date"]
+            for t, score in cross["scores"].items():
+                expected = (a_by_date if t == "A" else b_by_date)[d]
+                self.assertEqual(score, expected)
+        # The day B is missing must not appear as a B score.
+        self.assertTrue(all(day(40) != c["date"] or "B" not in c["scores"]
+                            for c in hist))
+
+
 class TestCsvRealDataContract(unittest.TestCase):
     """CSV proves the same neutral contract the yfinance/Alpaca loaders return,
     validated offline (no network)."""

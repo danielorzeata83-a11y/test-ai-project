@@ -43,28 +43,43 @@ def _features_at(rows) -> dict[str, float] | None:
 
 
 def build_history(prices: Mapping[str, list], alpha: AlphaFn, horizon: int = 1) -> list[Cross]:
-    """Build daily cross-sections of (scores, forward returns) for an alpha."""
+    """Build daily cross-sections of (scores, forward returns) for an alpha.
+
+    Aligns by calendar date, not by position: real loaders (CSV, yfinance) can
+    yield ragged per-ticker series (delistings, dropped NaN closes), so the same
+    list index can mean different days for different tickers. For each shared
+    date we look up each ticker's own row at that date, require its 64-bar
+    lookback and `horizon`-bar forward to exist, and only then include it.
+    """
     tickers = list(prices)
-    # Align on a common ascending date axis (assume loaders sort by date).
-    n = min(len(prices[t]) for t in tickers)
-    dates = [prices[tickers[0]][i][0] for i in range(n)]
+    # Per-ticker date -> position, and the closes by position.
+    date_pos = {t: {row[0]: i for i, row in enumerate(prices[t])} for t in tickers}
+
+    # Iterate the sorted union of all dates.
+    all_dates = sorted({row[0] for t in tickers for row in prices[t]})
 
     history: list[Cross] = []
-    for i in range(64, n - horizon):
+    for d in all_dates:
         feats = {}
+        fwd_ready = {}
         for t in tickers:
+            i = date_pos[t].get(d)
+            if i is None or i < 63 or i + horizon >= len(prices[t]):
+                continue
             f = _features_at(prices[t][: i + 1])
             if f is not None:
                 feats[t] = f
+                fwd_ready[t] = i
         if len(feats) < 2:
             continue
         scores = alpha(feats)
         fwd = {}
         for t in feats:
+            i = fwd_ready[t]
             c_now = prices[t][i][1]
             c_fwd = prices[t][i + horizon][1]
             fwd[t] = c_fwd / c_now - 1.0
-        history.append({"date": dates[i], "scores": scores, "fwd": fwd})
+        history.append({"date": d, "scores": scores, "fwd": fwd})
     return history
 
 
