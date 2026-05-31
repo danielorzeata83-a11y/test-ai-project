@@ -111,7 +111,11 @@ python run.py
 ```
 
 Note the free tier is rate-limited (~5 requests/min, ~25/day), so a wide
-universe needs either the `pause` spacing above or a premium key.
+universe needs either the `pause` spacing above or a premium key. Responses are
+cached on disk under `.av_cache/` per (ticker, interval, outputsize); a run
+within `cache_ttl` seconds (default 3600) reuses the cache instead of calling
+the API, so repeated runs don't burn the daily quota. Set `cache_dir: null` to
+disable.
 
 **Why `bars_per_day` matters.** Every annualized number (Sharpe, Deflated
 Sharpe, vol target) scales by `periods_per_year = 252 * bars_per_day`. Set it

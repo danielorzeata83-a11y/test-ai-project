@@ -225,7 +225,7 @@ def load_alpaca(
 
 def load_alphavantage(
     tickers: tuple[str, ...], interval: str = "5min", outputsize: str = "compact",
-    pause: float = 0.0,
+    pause: float = 0.0, cache_dir: str | None = ".av_cache", cache_ttl: float = 3600.0,
 ) -> PriceData:
     """Load intraday bars from Alpha Vantage (TIME_SERIES_INTRADAY), stdlib only.
 
@@ -234,31 +234,70 @@ def load_alphavantage(
     'compact' (latest 100 bars) or 'full'. Free tier is rate-limited (~5 req/min,
     25/day) — set `pause` (e.g. 15) to space out requests for multiple tickers.
 
+    Caching: raw responses are cached per (ticker, interval, outputsize) under
+    `cache_dir`. A cached file younger than `cache_ttl` seconds is reused instead
+    of calling the API, so repeated runs don't burn the daily request quota. Set
+    cache_dir=None to disable. Network calls (and pause) only happen on a miss.
+
     Same neutral contract: {ticker: [(timestamp, close, volume)]} ascending.
     """
+    out: PriceData = {}
+    fetched = 0
+    for t in tickers:
+        payload = _av_cache_read(cache_dir, t, interval, outputsize, cache_ttl)
+        if payload is None:
+            if fetched and pause:
+                time.sleep(pause)  # respect free-tier rate limit between calls
+            payload = _av_fetch(t, interval, outputsize)
+            fetched += 1
+            _av_cache_write(cache_dir, t, interval, outputsize, payload)
+        out[t] = _parse_alphavantage(t, payload, interval)
+    return out
+
+
+def _av_cache_path(cache_dir: str, ticker: str, interval: str, outputsize: str) -> str:
+    return os.path.join(cache_dir, f"{ticker}_{interval}_{outputsize}.json")
+
+
+def _av_cache_read(cache_dir, ticker, interval, outputsize, ttl) -> dict | None:
+    if not cache_dir:
+        return None
+    path = _av_cache_path(cache_dir, ticker, interval, outputsize)
+    if not os.path.exists(path) or (time.time() - os.path.getmtime(path)) > ttl:
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _av_cache_write(cache_dir, ticker, interval, outputsize, payload) -> None:
+    if not cache_dir:
+        return
+    os.makedirs(cache_dir, exist_ok=True)
+    path = _av_cache_path(cache_dir, ticker, interval, outputsize)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f)
+    os.replace(tmp, path)  # atomic; never leave a half-written cache file
+
+
+def _av_fetch(ticker: str, interval: str, outputsize: str) -> dict:
+    """One live API call. Key read from env at call time, never stored."""
     api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
     if not api_key:
         raise RuntimeError(
             "set ALPHAVANTAGE_API_KEY (get a free key at "
             "https://www.alphavantage.co/support/#api-key)"
         )
-
-    out: PriceData = {}
-    for idx, t in enumerate(tickers):
-        if idx and pause:
-            time.sleep(pause)  # respect free-tier rate limit
-        params = urllib.parse.urlencode({
-            "function": "TIME_SERIES_INTRADAY",
-            "symbol": t,
-            "interval": interval,
-            "outputsize": outputsize,
-            "apikey": api_key,
-        })
-        url = f"https://www.alphavantage.co/query?{params}"
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            payload = json.load(resp)
-        out[t] = _parse_alphavantage(t, payload, interval)
-    return out
+    params = urllib.parse.urlencode({
+        "function": "TIME_SERIES_INTRADAY",
+        "symbol": ticker,
+        "interval": interval,
+        "outputsize": outputsize,
+        "apikey": api_key,
+    })
+    url = f"https://www.alphavantage.co/query?{params}"
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        return json.load(resp)
 
 
 def _parse_alphavantage(ticker: str, payload: dict, interval: str) -> list[PriceRow]:

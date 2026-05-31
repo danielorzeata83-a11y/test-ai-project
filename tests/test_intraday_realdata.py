@@ -144,10 +144,50 @@ class TestAlphaVantageParsing(unittest.TestCase):
         old = os.environ.pop("ALPHAVANTAGE_API_KEY", None)
         try:
             with self.assertRaises(RuntimeError):
-                load_alphavantage(("IBM",))
+                load_alphavantage(("IBM",), cache_dir=None)  # force a live fetch
         finally:
             if old is not None:
                 os.environ["ALPHAVANTAGE_API_KEY"] = old
+
+
+class TestAlphaVantageCache(unittest.TestCase):
+    """Validate the on-disk cache offline by stubbing the live fetch, so repeated
+    runs don't burn the API quota."""
+
+    def setUp(self):
+        import alpha_pipeline.data as data
+        self.data = data
+        self.cache = tempfile.mkdtemp()
+        self.calls = []
+        self._real_fetch = data._av_fetch
+
+        def fake_fetch(ticker, interval, outputsize):
+            self.calls.append(ticker)
+            return {f"Time Series ({interval})": {
+                "2024-01-02 10:00:00": {"4. close": "100.0", "5. volume": "10"},
+                "2024-01-02 10:05:00": {"4. close": "101.0", "5. volume": "12"},
+            }}
+
+        data._av_fetch = fake_fetch
+        self.addCleanup(setattr, data, "_av_fetch", self._real_fetch)
+
+    def test_miss_then_hit_avoids_second_fetch(self):
+        first = self.data.load_alphavantage(("IBM",), cache_dir=self.cache)
+        second = self.data.load_alphavantage(("IBM",), cache_dir=self.cache)
+        self.assertEqual(self.calls, ["IBM"])  # only one live fetch
+        self.assertEqual(first, second)
+        self.assertEqual(len(first["IBM"]), 2)
+
+    def test_expired_ttl_refetches(self):
+        self.data.load_alphavantage(("IBM",), cache_dir=self.cache)
+        # ttl=0 makes any cached file immediately stale.
+        self.data.load_alphavantage(("IBM",), cache_dir=self.cache, cache_ttl=0)
+        self.assertEqual(self.calls, ["IBM", "IBM"])  # refetched
+
+    def test_disabled_cache_always_fetches(self):
+        self.data.load_alphavantage(("IBM",), cache_dir=None)
+        self.data.load_alphavantage(("IBM",), cache_dir=None)
+        self.assertEqual(self.calls, ["IBM", "IBM"])
 
 
 if __name__ == "__main__":
