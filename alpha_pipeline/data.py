@@ -18,6 +18,21 @@ from collections import defaultdict
 PriceRow = tuple[str, float, float]
 PriceData = dict[str, list[PriceRow]]
 
+# S&P 100 constituents (OEX), for real-data runs via yfinance/Alpaca. Membership
+# drifts over time; refresh from your data provider when you go live.
+SP100 = (
+    "AAPL", "ABBV", "ABT", "ACN", "ADBE", "AIG", "AMD", "AMGN", "AMT", "AMZN",
+    "AVGO", "AXP", "BA", "BAC", "BK", "BKNG", "BLK", "BMY", "BRK-B", "C",
+    "CAT", "CHTR", "CL", "CMCSA", "COF", "COP", "COST", "CRM", "CSCO", "CVS",
+    "CVX", "DHR", "DIS", "DOW", "DUK", "EMR", "FDX", "GD", "GE", "GILD",
+    "GM", "GOOG", "GOOGL", "GS", "HD", "HON", "IBM", "INTC", "INTU", "JNJ",
+    "JPM", "KO", "LIN", "LLY", "LMT", "LOW", "MA", "MCD", "MDLZ", "MDT",
+    "MET", "META", "MMM", "MO", "MRK", "MS", "MSFT", "NEE", "NFLX", "NKE",
+    "NVDA", "ORCL", "PEP", "PFE", "PG", "PM", "PYPL", "QCOM", "RTX", "SBUX",
+    "SCHW", "SO", "SPG", "T", "TGT", "TMO", "TMUS", "TXN", "UNH", "UNP",
+    "UPS", "USB", "V", "VZ", "WFC", "WMT", "XOM",
+)
+
 
 def load_synthetic(
     tickers: tuple[str, ...],
@@ -67,6 +82,35 @@ def load_synthetic_drift(
             price *= math.exp(ret)
             vol = 1_000_000 * (0.5 + rng.random())
             rows.append((str(start_date + _dt.timedelta(days=i)), price, vol))
+        out[t] = rows
+    return out
+
+
+def load_synthetic_intraday(
+    tickers: tuple[str, ...], n_days: int = 30, bars_per_day: int = 78,
+    seed: int = 0, start: str = "2024-01-01", drift_scale: float = 0.0015,
+) -> PriceData:
+    """Synthetic intraday bars with persistent per-ticker drift. 78 bars/day =
+    5-minute bars over a 6.5h US session. For offline validation of the intraday
+    path; timestamps are 'YYYY-MM-DD HH:MM' so they sort correctly."""
+    import datetime as _dt
+
+    rng = random.Random(seed)
+    start_date = _dt.date.fromisoformat(start)
+    drifts = {t: rng.uniform(-drift_scale, drift_scale) for t in tickers}
+    per_bar_drift = {t: drifts[t] / bars_per_day for t in tickers}
+    bar_vol = 0.008 / (bars_per_day ** 0.5)
+    out: PriceData = {}
+    for t in tickers:
+        price = 100.0
+        rows: list[PriceRow] = []
+        for d in range(n_days):
+            day = start_date + _dt.timedelta(days=d)
+            for b in range(bars_per_day):
+                minute = 9 * 60 + 30 + b * 5  # 09:30 + 5min steps
+                ts = f"{day} {minute // 60:02d}:{minute % 60:02d}"
+                price *= math.exp(per_bar_drift[t] + rng.gauss(0.0, bar_vol))
+                rows.append((ts, price, 1e5 * (0.5 + rng.random())))
         out[t] = rows
     return out
 

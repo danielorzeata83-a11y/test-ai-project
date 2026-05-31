@@ -56,13 +56,50 @@ generate it.
 Every tunable parameter lives in one versioned file: universe, Gate thresholds,
 risk limits, costs. Edit there, not in code.
 
-## Toward intraday
+## Real data & intraday
 
 The whole pipeline depends on one neutral data contract:
-`{ticker: [(date, close, volume)]}`. Swap the loader (synthetic → CSV →
-yfinance → intraday bars) and the rest of the system is unchanged. Daily is
-built and tested; intraday is the same chain with a different loader and an
-intraday-capable data source (e.g. Alpaca/Polygon).
+`{ticker: [(timestamp, close, volume)]}`. Swap the loader and the rest of the
+system is unchanged — that's the seam from daily to intraday.
+
+**Daily, real data (S&P 100 via yfinance):**
+
+```bash
+pip install yfinance
+# config.yaml under universe:
+#   names: (use the SP100 tuple from alpha_pipeline/data.py)
+#   source: yfinance
+#   period: 2y
+python run.py
+```
+
+**Intraday (5-minute bars):**
+
+```yaml
+# config.yaml
+universe:
+  source: yfinance_intraday   # or: alpaca
+  interval: 5m                # yfinance; for alpaca use timeframe: 5Min
+  period: 5d
+frequency:
+  bars_per_day: 78            # 5-min bars over a 6.5h US session
+```
+
+```bash
+# Alpaca (recommended: paper data + execution in one API)
+pip install alpaca-py
+export APCA_API_KEY_ID=...  APCA_API_SECRET_KEY=...
+python run.py
+```
+
+**Why `bars_per_day` matters.** Every annualized number (Sharpe, Deflated
+Sharpe, vol target) scales by `periods_per_year = 252 * bars_per_day`. Set it
+correctly or intraday Sharpes come out wildly inflated. Daily = 1; 5-minute US
+session = 78.
+
+> Network note: the synthetic and CSV paths run fully offline and are covered by
+> tests. The yfinance/Alpaca paths require network (and, for Alpaca, API keys);
+> they're built to the same contract but validated on your machine, not in CI.
 
 ## Layout
 

@@ -153,7 +153,8 @@ def turnover(history: list[Cross], top_frac: float = 0.2) -> float:
 
 def sharpe(daily: list[float], cost_per_turnover: float = 0.0, turn: float = 0.0,
            periods: int = 252) -> float:
-    """Annualized Sharpe, optionally net of per-rebalance cost."""
+    """Annualized Sharpe, optionally net of per-rebalance cost. `periods` is the
+    number of return observations per year (252 daily; 252*bars/day intraday)."""
     if len(daily) < 2:
         return 0.0
     net = [r - cost_per_turnover * turn for r in daily]
@@ -161,7 +162,8 @@ def sharpe(daily: list[float], cost_per_turnover: float = 0.0, turn: float = 0.0
     return (mean / sd) * math.sqrt(periods) if sd > 0 else 0.0
 
 
-def deflated_sharpe(daily: list[float], observed_sharpe: float, n_trials: int) -> float:
+def deflated_sharpe(daily: list[float], observed_sharpe: float, n_trials: int,
+                    periods: int = 252) -> float:
     """Probability the true Sharpe > 0 after correcting for multiple testing
     and non-normal returns. Bailey & Lopez de Prado, simplified."""
     n = len(daily)
@@ -169,7 +171,7 @@ def deflated_sharpe(daily: list[float], observed_sharpe: float, n_trials: int) -
         return 0.0
     sk = _skew(daily)
     ku = _kurt(daily)
-    sr = observed_sharpe / math.sqrt(252)  # per-period
+    sr = observed_sharpe / math.sqrt(periods)  # per-period
 
     # Expected max of n_trials standard-normal draws (benchmark to beat).
     emc = 0.5772156649

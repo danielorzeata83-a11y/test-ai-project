@@ -32,7 +32,7 @@ class HealthReport:
         )
 
 
-def health(journal: Journal) -> HealthReport:
+def health(journal: Journal, periods_per_year: int = 252) -> HealthReport:
     rows = journal._conn.execute(
         "SELECT payload FROM portfolio_snaps ORDER BY date"
     ).fetchall()
@@ -55,7 +55,7 @@ def health(journal: Journal) -> HealthReport:
 
     rets = [navs[i] / navs[i - 1] - 1.0 for i in range(1, len(navs))]
     if len(rets) >= 2 and statistics.pstdev(rets) > 0:
-        sharpe = statistics.fmean(rets) / statistics.pstdev(rets) * math.sqrt(252)
+        sharpe = statistics.fmean(rets) / statistics.pstdev(rets) * math.sqrt(periods_per_year)
     else:
         sharpe = 0.0
 

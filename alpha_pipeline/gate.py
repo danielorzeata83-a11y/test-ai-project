@@ -33,6 +33,7 @@ class GateConfig:
     n_trials: int = 20
     min_cpcv_fraction: float = 0.8
     max_correlation: float = 0.6
+    periods_per_year: int = 252  # 252 daily; 252*bars_per_day for intraday
 
 
 class GateResult:
@@ -75,13 +76,13 @@ def evaluate_alpha(
     # 3. Realist (net Sharpe)
     daily = ev.long_short_returns(history)
     turn = ev.turnover(history)
-    net_sharpe = ev.sharpe(daily, cfg.cost_per_turnover, turn)
+    net_sharpe = ev.sharpe(daily, cfg.cost_per_turnover, turn, cfg.periods_per_year)
     res.metrics.update(net_sharpe=net_sharpe, turnover=turn)
     res.checks["realist"] = net_sharpe >= cfg.min_net_sharpe
 
     # 4. Skeptic (Deflated Sharpe)
-    gross_sharpe = ev.sharpe(daily)
-    dsr = ev.deflated_sharpe(daily, gross_sharpe, cfg.n_trials)
+    gross_sharpe = ev.sharpe(daily, periods=cfg.periods_per_year)
+    dsr = ev.deflated_sharpe(daily, gross_sharpe, cfg.n_trials, cfg.periods_per_year)
     res.metrics["dsr"] = dsr
     res.checks["skeptic"] = dsr >= cfg.min_dsr
 

@@ -33,6 +33,7 @@ class RiskConfig:
     crisis_threshold: float = 0.5   # crisis prob above this triggers overlay
     max_drawdown: float = 0.15      # peak-to-trough breaker
     min_history_for_regime: int = 64
+    periods_per_year: int = 252     # 252 daily; 252*bars_per_day intraday
 
 
 class RiskBot:
@@ -123,7 +124,7 @@ class RiskBot:
             v = panel.data.get(t, {}).get("vol_21")
             if v is not None:
                 var += (x * v) ** 2
-        return (var ** 0.5) * (252 ** 0.5)
+        return (var ** 0.5) * (self.cfg.periods_per_year ** 0.5)
 
     def _halt(self, date, reason, actions) -> SafeWeights:
         actions.append(reason)
