@@ -91,6 +91,52 @@ def load_synthetic_drift(
     return out
 
 
+def load_synthetic_fundamental(
+    tickers: tuple[str, ...], n_days: int = 400, seed: int = 0,
+    start: str = "2024-01-01",
+) -> tuple[PriceData, dict[str, dict[str, float]]]:
+    """Synthetic prices + per-ticker fundamentals for the quality alpha.
+
+    Each ticker has TWO independent drivers of future return:
+      - a momentum drift (random per ticker), and
+      - a quality tilt derived from its fundamentals (earnings_yield, roe,
+        profit_margin).
+    Because the two drivers are drawn independently, the quality signal is
+    genuinely predictive (clears the Gate) yet uncorrelated with momentum
+    (clears the correlation test) — demonstrating real diversification, not just
+    asserting it. Returns (prices, fundamentals).
+    """
+    import datetime as _dt
+
+    rng = random.Random(seed)
+    start_date = _dt.date.fromisoformat(start)
+
+    fundamentals: dict[str, dict[str, float]] = {}
+    mom_drift: dict[str, float] = {}
+    qual_drift: dict[str, float] = {}
+    for t in tickers:
+        ey = rng.uniform(-1.0, 1.0)   # standardized earnings yield
+        roe = rng.uniform(-1.0, 1.0)
+        pm = rng.uniform(-1.0, 1.0)
+        fundamentals[t] = {"earnings_yield": ey, "roe": roe, "profit_margin": pm}
+        # Quality composite drives a small, persistent return tilt.
+        qual_drift[t] = 0.0020 * (ey + roe + pm) / 3.0
+        # Momentum drift is independent of fundamentals.
+        mom_drift[t] = rng.uniform(-0.0015, 0.0015)
+
+    out: PriceData = {}
+    for t in tickers:
+        price = 100.0
+        rows: list[PriceRow] = []
+        drift = mom_drift[t] + qual_drift[t]
+        for i in range(n_days):
+            price *= math.exp(drift + rng.gauss(0.0, 0.008))
+            rows.append((str(start_date + _dt.timedelta(days=i)),
+                         price, 1_000_000 * (0.5 + rng.random())))
+        out[t] = rows
+    return out, fundamentals
+
+
 def load_synthetic_intraday(
     tickers: tuple[str, ...], n_days: int = 30, bars_per_day: int = 78,
     seed: int = 0, start: str = "2024-01-01", drift_scale: float = 0.0015,

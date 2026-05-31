@@ -42,7 +42,10 @@ def _features_at(rows) -> dict[str, float] | None:
     return feats if all(math.isfinite(v) for v in feats.values()) else None
 
 
-def build_history(prices: Mapping[str, list], alpha: AlphaFn, horizon: int = 1) -> list[Cross]:
+def build_history(
+    prices: Mapping[str, list], alpha: AlphaFn, horizon: int = 1,
+    fundamentals: Mapping[str, Mapping[str, float]] | None = None,
+) -> list[Cross]:
     """Build daily cross-sections of (scores, forward returns) for an alpha.
 
     Aligns by calendar date, not by position: real loaders (CSV, yfinance) can
@@ -50,6 +53,10 @@ def build_history(prices: Mapping[str, list], alpha: AlphaFn, horizon: int = 1) 
     list index can mean different days for different tickers. For each shared
     date we look up each ticker's own row at that date, require its 64-bar
     lookback and `horizon`-bar forward to exist, and only then include it.
+
+    `fundamentals` (optional) maps ticker -> {feature: value}; these per-ticker
+    snapshot values are merged into each cross-section's features so fundamental
+    alphas (e.g. quality) can read them. None means price-only, unchanged.
     """
     tickers = list(prices)
     # Per-ticker date -> position, and the closes by position.
@@ -68,6 +75,8 @@ def build_history(prices: Mapping[str, list], alpha: AlphaFn, horizon: int = 1) 
                 continue
             f = _features_at(prices[t][: i + 1])
             if f is not None:
+                if fundamentals and t in fundamentals:
+                    f = {**f, **fundamentals[t]}
                 feats[t] = f
                 fwd_ready[t] = i
         if len(feats) < 2:
@@ -133,9 +142,10 @@ def information_coefficient(history: list[Cross]) -> dict:
     return {"ic": mean, "ic_ir": ic_ir, "t_stat": t_stat, "n": len(ics)}
 
 
-def ic_decay(prices, alpha: AlphaFn, horizons=(1, 2, 5, 10)) -> dict:
+def ic_decay(prices, alpha: AlphaFn, horizons=(1, 2, 5, 10), fundamentals=None) -> dict:
     """IC at increasing horizons. A signal that dies fast is a cost trap."""
-    return {h: information_coefficient(build_history(prices, alpha, h))["ic"]
+    return {h: information_coefficient(
+                build_history(prices, alpha, h, fundamentals))["ic"]
             for h in horizons}
 
 

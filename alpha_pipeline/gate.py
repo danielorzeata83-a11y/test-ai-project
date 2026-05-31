@@ -52,10 +52,11 @@ class GateResult:
 
 
 def evaluate_alpha(
-    prices, alpha: AlphaFn, name: str, registry: Registry, cfg: GateConfig
+    prices, alpha: AlphaFn, name: str, registry: Registry, cfg: GateConfig,
+    fundamentals=None,
 ) -> GateResult:
     res = GateResult()
-    history = ev.build_history(prices, alpha, horizon=1)
+    history = ev.build_history(prices, alpha, horizon=1, fundamentals=fundamentals)
 
     # 1. Statistician
     icr = ev.information_coefficient(history)
@@ -67,7 +68,7 @@ def evaluate_alpha(
     )
 
     # 2. Cost analyst (decay)
-    decay = ev.ic_decay(prices, alpha, horizons=(1, 5))
+    decay = ev.ic_decay(prices, alpha, horizons=(1, 5), fundamentals=fundamentals)
     ic1, ic5 = decay[1], decay[5]
     ratio = (ic5 / ic1) if ic1 > 0 else 0.0
     res.metrics["decay_ratio"] = ratio
@@ -97,7 +98,8 @@ def evaluate_alpha(
     for other in registry.active_names():
         if other == name or other not in ALPHAS:
             continue
-        other_hist = ev.build_history(prices, ALPHAS[other], horizon=1)
+        other_hist = ev.build_history(
+            prices, ALPHAS[other], horizon=1, fundamentals=fundamentals)
         # Correlate the daily long-short return streams.
         other_daily = ev.long_short_returns(other_hist)
         m = min(len(daily), len(other_daily))

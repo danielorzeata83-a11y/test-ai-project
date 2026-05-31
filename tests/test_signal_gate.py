@@ -93,6 +93,42 @@ class TestGate(unittest.TestCase):
         self.assertFalse(res.passed)
 
 
+class TestQualityAlpha(unittest.TestCase):
+    """The fundamental quality alpha must pass the Gate AND stay uncorrelated
+    with momentum — proving real diversification, not just a relabeled price
+    signal."""
+
+    def setUp(self):
+        from alpha_pipeline.data import load_synthetic_fundamental
+        U = tuple("T%02d" % i for i in range(40))
+        self.prices, self.funds = load_synthetic_fundamental(U, n_days=400, seed=5)
+        self.reg = Registry(os.path.join(tempfile.mkdtemp(), "reg.json"))
+        self.cfg = GateConfig()
+
+    def test_quality_passes_gate(self):
+        from alpha_pipeline.alphas import quality
+        res = evaluate_alpha(self.prices, quality, "quality", self.reg, self.cfg,
+                             fundamentals=self.funds)
+        self.assertTrue(res.passed, res)
+        self.assertGreater(res.metrics["t_stat"], 3.0)
+
+    def test_quality_uncorrelated_with_momentum(self):
+        from alpha_pipeline.alphas import quality
+        # With momentum already live, the correlation test must still pass.
+        self.reg.promote("momentum", {})
+        res = evaluate_alpha(self.prices, quality, "quality", self.reg, self.cfg,
+                             fundamentals=self.funds)
+        self.assertLess(res.metrics["max_correlation"], 0.6)
+        self.assertTrue(res.checks["librarian"])
+        self.assertTrue(res.passed)
+
+    def test_quality_without_fundamentals_degrades_gracefully(self):
+        from alpha_pipeline.alphas import quality
+        # No fundamentals -> all scores 0 -> no edge, but no crash.
+        scores = quality({"AAPL": {"close": 100.0}, "MSFT": {"close": 50.0}})
+        self.assertEqual(scores, {"AAPL": 0.0, "MSFT": 0.0})
+
+
 class TestSignalBot(unittest.TestCase):
     def test_balanced_long_short(self):
         reg = Registry(os.path.join(tempfile.mkdtemp(), "reg.json"))

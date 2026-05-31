@@ -32,8 +32,27 @@ def low_vol(features: Features) -> dict:
     return {t: -f["vol_21"] for t, f in features.items()}
 
 
+def quality(features: Features) -> dict:
+    """Fundamental quality/value composite: cheap + profitable names.
+
+    Reads fundamental features (earnings_yield, roe, profit_margin) that the
+    Analyst merges into the panel when a fundamentals source is configured.
+    Returns 0 for tickers without fundamentals so it degrades gracefully rather
+    than raising. This is the one non-price alpha, so it diversifies the book.
+    """
+    out = {}
+    for t, f in features.items():
+        out[t] = (
+            f.get("earnings_yield", 0.0)
+            + f.get("roe", 0.0)
+            + f.get("profit_margin", 0.0)
+        )
+    return out
+
+
 ALPHAS: dict[str, AlphaFn] = {
     "momentum": momentum,
     "reversal": reversal,
     "low_vol": low_vol,
+    "quality": quality,
 }
