@@ -68,13 +68,29 @@ def periods_per_year(cfg: Config) -> int:
     return 252 * cfg.section("frequency").get("bars_per_day", 1)
 
 
-def build_system(cfg: Config, prices, journal, registry):
+def make_fundamentals(cfg: Config, days: int, seed: int):
+    """Return per-ticker fundamentals {ticker: {feature: value}} for the quality
+    alpha, or None if no fundamentals source is configured.
+
+    `synthetic_fundamental` returns them alongside prices (handled in run());
+    here we cover the live source. Default: none (price-only, unchanged)."""
+    u = cfg.section("universe")
+    universe = tuple(u["names"])
+    fsrc = u.get("fundamentals_source")
+    if fsrc == "alphavantage":
+        return datamod.load_alphavantage_fundamentals(
+            universe, pause=u.get("pause", 15.0),
+            cache_dir=u.get("cache_dir", ".av_cache"))
+    return None
+
+
+def build_system(cfg: Config, prices, journal, registry, fundamentals=None):
     universe = tuple(cfg.section("universe")["names"])
     a = cfg.section("analyst")
     analyst = AnalystBot(
         universe, lambda: prices,
         min_coverage=a["min_coverage"], max_return_spike=a["max_return_spike"],
-        min_history=a["min_history"],
+        min_history=a["min_history"], fundamentals=fundamentals,
     )
     signal = SignalBot(registry, top_frac=cfg.section("signal")["top_frac"])
     r = dict(cfg.section("risk"))
@@ -87,7 +103,14 @@ def build_system(cfg: Config, prices, journal, registry):
 
 def run(cfg: Config, days: int, seed: int, workdir: str):
     universe = tuple(cfg.section("universe")["names"])
-    prices = make_loader(cfg, days, seed)()
+    source = cfg.section("universe").get("source", "synthetic")
+    # synthetic_fundamental bundles prices + fundamentals from one seed.
+    if source == "synthetic_fundamental":
+        prices, fundamentals = datamod.load_synthetic_fundamental(
+            universe, n_days=days, seed=seed)
+    else:
+        prices = make_loader(cfg, days, seed)()
+        fundamentals = make_fundamentals(cfg, days, seed)
     dates = [r[0] for r in prices[universe[0]]]
     ppy = periods_per_year(cfg)
 
@@ -100,7 +123,8 @@ def run(cfg: Config, days: int, seed: int, workdir: str):
         g["periods_per_year"] = ppy
         gcfg = GateConfig(**{k: g[k] for k in g if k in GateConfig.__dataclass_fields__})
         for name, fn in ALPHAS.items():
-            res = evaluate_alpha(prices, fn, name, registry, gcfg)
+            res = evaluate_alpha(prices, fn, name, registry, gcfg,
+                                 fundamentals=fundamentals)
             if res.passed:
                 registry.promote(name, {k: round(v, 6) for k, v in res.metrics.items()})
 
@@ -112,7 +136,7 @@ def run(cfg: Config, days: int, seed: int, workdir: str):
             f"need more than {warmup + 1} dates for warmup, got {len(dates)}"
         )
     with Journal(os.path.join(workdir, "journal.db")) as journal:
-        orch = build_system(cfg, prices, journal, registry)
+        orch = build_system(cfg, prices, journal, registry, fundamentals)
         state = PortfolioState.initial(dates[warmup], initial)
         # Start after the warmup window so features exist.
         for d in dates[warmup + 1:]:

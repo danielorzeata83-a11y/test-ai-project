@@ -150,6 +150,38 @@ class TestAlphaVantageParsing(unittest.TestCase):
                 os.environ["ALPHAVANTAGE_API_KEY"] = old
 
 
+class TestOverviewParsing(unittest.TestCase):
+    """Validate the OVERVIEW (fundamentals) parsing offline."""
+
+    def test_parses_overview(self):
+        from alpha_pipeline.data import _parse_overview
+
+        payload = {"Symbol": "IBM", "PERatio": "20.0",
+                   "ReturnOnEquityTTM": "0.35", "ProfitMargin": "0.12"}
+        f = _parse_overview("IBM", payload)
+        self.assertAlmostEqual(f["earnings_yield"], 0.05)  # 1/20
+        self.assertAlmostEqual(f["roe"], 0.35)
+        self.assertAlmostEqual(f["profit_margin"], 0.12)
+
+    def test_missing_or_bad_fields_default_zero(self):
+        from alpha_pipeline.data import _parse_overview
+
+        f = _parse_overview("IBM", {"Symbol": "IBM", "PERatio": "None"})
+        self.assertEqual(f["earnings_yield"], 0.0)  # P/E unusable -> 0
+        self.assertEqual(f["roe"], 0.0)
+
+    def test_empty_payload_returns_none(self):
+        from alpha_pipeline.data import _parse_overview
+
+        self.assertIsNone(_parse_overview("BADSYM", {}))
+
+    def test_throttle_note_raises(self):
+        from alpha_pipeline.data import _parse_overview
+
+        with self.assertRaises(RuntimeError):
+            _parse_overview("IBM", {"Note": "rate limit"})
+
+
 class TestAlphaVantageCache(unittest.TestCase):
     """Validate the on-disk cache offline by stubbing the live fetch, so repeated
     runs don't burn the API quota."""

@@ -34,6 +34,7 @@ class AnalystBot:
         min_coverage: float = 0.8,
         max_return_spike: float = 0.5,
         min_history: int = 64,
+        fundamentals=None,
     ) -> None:
         self.universe = universe
         self.loader = loader
@@ -41,6 +42,10 @@ class AnalystBot:
         self.max_return_spike = max_return_spike
         # Features need a 63-day window (closes[-64]); never go below that.
         self.min_history = max(min_history, 64)
+        # Optional per-ticker fundamentals: a dict {ticker: {feature: value}} or
+        # a zero-arg callable returning one. Merged into each ticker's features
+        # so fundamental alphas (quality) can read them. None = price-only.
+        self.fundamentals = fundamentals
 
     def run(self, date: str) -> FeaturePanel:
         # fail-soft on data-source problems (network, bad rows), fail-hard on
@@ -51,6 +56,16 @@ class AnalystBot:
             raise  # programmer bug -> propagate -> Orchestrator halts
         except Exception as exc:
             return self._invalid(date, {"error": f"loader failed: {exc!r}"})
+
+        # Load fundamentals fail-soft: if unavailable, proceed price-only rather
+        # than sinking the cycle (quality just scores 0 for those names).
+        funds: dict = {}
+        fund_error = None
+        if self.fundamentals is not None:
+            try:
+                funds = self.fundamentals() if callable(self.fundamentals) else self.fundamentals
+            except Exception as exc:
+                fund_error = f"fundamentals failed: {exc!r}"
 
         data: dict[str, dict[str, float]] = {}
         excluded: dict[str, str] = {}
@@ -78,6 +93,8 @@ class AnalystBot:
                 excluded[t] = f"return spike |{spike:.1%}| exceeds {self.max_return_spike:.0%}"
                 continue
 
+            if t in funds:
+                feats = {**feats, **funds[t]}
             data[t] = feats
 
         coverage = len(data) / len(self.universe) if self.universe else 0.0
@@ -85,7 +102,10 @@ class AnalystBot:
             "coverage": coverage,
             "excluded": excluded,
             "n_included": len(data),
+            "fundamentals_loaded": len(funds),
         }
+        if fund_error:
+            meta["fundamentals_error"] = fund_error
 
         if coverage < self.min_coverage:
             meta["error"] = (

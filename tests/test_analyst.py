@@ -24,6 +24,39 @@ def clean_loader(seed=1):
     return _load
 
 
+class TestAnalystFundamentals(unittest.TestCase):
+    def test_fundamentals_merged_into_panel(self):
+        funds = {t: {"earnings_yield": 0.05, "roe": 0.2, "profit_margin": 0.1}
+                 for t in UNIVERSE}
+        bot = AnalystBot(UNIVERSE, clean_loader(), fundamentals=funds)
+        panel = bot.run(LAST_DATE)
+        self.assertTrue(panel.valid)
+        for t in panel.tickers:
+            # Price features still present...
+            self.assertIn("mom_21", panel.data[t])
+            # ...and fundamentals merged in.
+            self.assertEqual(panel.data[t]["roe"], 0.2)
+        self.assertEqual(panel.metadata["fundamentals_loaded"], len(UNIVERSE))
+
+    def test_fundamentals_loader_fail_soft(self):
+        def bad_funds():
+            raise ConnectionError("overview down")
+
+        bot = AnalystBot(UNIVERSE, clean_loader(), fundamentals=bad_funds)
+        panel = bot.run(LAST_DATE)
+        # Price-only panel still valid; error recorded, no crash.
+        self.assertTrue(panel.valid)
+        self.assertIn("fundamentals_error", panel.metadata)
+        self.assertNotIn("roe", panel.data[panel.tickers[0]])
+
+    def test_partial_fundamentals_only_some_tickers(self):
+        funds = {UNIVERSE[0]: {"earnings_yield": 0.1, "roe": 0.3, "profit_margin": 0.2}}
+        bot = AnalystBot(UNIVERSE, clean_loader(), fundamentals=funds)
+        panel = bot.run(LAST_DATE)
+        self.assertIn("roe", panel.data[UNIVERSE[0]])
+        self.assertNotIn("roe", panel.data[UNIVERSE[1]])  # no funds -> price only
+
+
 class TestAnalyst(unittest.TestCase):
     def test_happy_path(self):
         bot = AnalystBot(UNIVERSE, clean_loader())

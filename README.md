@@ -44,6 +44,26 @@ Six examiners; an alpha must pass all of them to be promoted:
 5. **Engineer** — CPCV positive across time splits
 6. **Librarian** — correlation < 0.6 with promoted alphas
 
+## Alphas — including a fundamental one
+
+The library (`alphas.py`) has four signals: three price-based (`momentum`,
+`reversal`, `low_vol`) and one fundamental — `quality` (earnings_yield + roe +
+profit_margin). Quality is the diversifier: it reads fundamentals the Analyst
+merges into the panel, so it falls for different reasons than the price alphas
+(correlation ~0.12 with momentum on the demo data, well under the Gate's 0.6).
+
+```bash
+# Offline demo: both momentum and quality clear the Gate and trade together.
+# (set source: synthetic_fundamental in config.yaml)
+python run.py     # -> Promoted alphas: ('momentum', 'quality')
+```
+
+Live fundamentals come from Alpha Vantage OVERVIEW
+(`fundamentals_source: alphavantage`). **Caveat:** OVERVIEW is a *current
+snapshot*, not point-in-time — using it in a historical backtest leaks
+future information (lookahead/survivorship bias). It's fine for live/paper
+trading going forward; for research backtests, use point-in-time fundamentals.
+
 ## Regime overlay (`regime.py`)
 
 A stdlib 2-state Gaussian HMM detects calm vs crisis volatility regimes

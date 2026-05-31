@@ -370,3 +370,81 @@ def _parse_alphavantage(ticker: str, payload: dict, interval: str) -> list[Price
     ]
     rows.sort(key=lambda r: r[0])  # API returns newest-first; we want ascending
     return rows
+
+
+def load_alphavantage_fundamentals(
+    tickers: tuple[str, ...], pause: float = 0.0,
+    cache_dir: str | None = ".av_cache", cache_ttl: float = 86400.0,
+) -> dict[str, dict[str, float]]:
+    """Load per-ticker fundamentals from Alpha Vantage OVERVIEW, for the quality
+    alpha. Returns {ticker: {earnings_yield, roe, profit_margin}} with values
+    cross-sectionally usable as-is.
+
+    earnings_yield = EPS / price proxy via 1 / PERatio (0 if P/E missing/<=0).
+    roe = ReturnOnEquityTTM. profit_margin = ProfitMargin.
+
+    WARNING: OVERVIEW is a *current snapshot*, not point-in-time. Using it in a
+    historical backtest introduces lookahead/survivorship bias — fundamentals
+    you know today weren't known in the past. Fine for live/paper trading going
+    forward; for research backtests, source point-in-time fundamentals instead.
+
+    Key from ALPHAVANTAGE_API_KEY env var. Cached a day by default (fundamentals
+    move slowly). Network calls only on a cache miss.
+    """
+    out: dict[str, dict[str, float]] = {}
+    fetched = 0
+    for t in tickers:
+        payload = _av_cache_read(cache_dir, t, "OVERVIEW", "full", cache_ttl)
+        if payload is None:
+            if fetched and pause:
+                time.sleep(pause)
+            payload = _av_fetch_overview(t)
+            fetched += 1
+            _av_cache_write(cache_dir, t, "OVERVIEW", "full", payload)
+        parsed = _parse_overview(t, payload)
+        if parsed is not None:
+            out[t] = parsed
+    return out
+
+
+def _av_fetch_overview(ticker: str) -> dict:
+    """One live OVERVIEW call. Key read from env at call time, never stored."""
+    api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "set ALPHAVANTAGE_API_KEY (get a free key at "
+            "https://www.alphavantage.co/support/#api-key)"
+        )
+    params = urllib.parse.urlencode({
+        "function": "OVERVIEW", "symbol": ticker, "apikey": api_key,
+    })
+    url = f"https://www.alphavantage.co/query?{params}"
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        return json.load(resp)
+
+
+def _parse_overview(ticker: str, payload: dict) -> dict[str, float] | None:
+    """Extract standardized fundamentals from an OVERVIEW payload. Returns None
+    for an empty/throttled response so the ticker is simply skipped (price-only)
+    rather than crashing the run."""
+    if "Note" in payload or "Information" in payload:
+        raise RuntimeError(
+            f"Alpha Vantage throttled/limited for {ticker}: "
+            f"{payload.get('Note') or payload.get('Information')}"
+        )
+    if not payload or "Symbol" not in payload:
+        return None  # unknown symbol / empty -> skip, score 0
+
+    def _num(key: str) -> float:
+        try:
+            v = float(payload.get(key, "none"))
+            return v if math.isfinite(v) else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    pe = _num("PERatio")
+    return {
+        "earnings_yield": 1.0 / pe if pe > 0 else 0.0,
+        "roe": _num("ReturnOnEquityTTM"),
+        "profit_margin": _num("ProfitMargin"),
+    }
