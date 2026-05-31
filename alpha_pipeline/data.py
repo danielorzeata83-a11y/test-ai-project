@@ -208,7 +208,12 @@ def load_alpaca(
     unit_map = {"Day": TimeFrameUnit.Day, "Hour": TimeFrameUnit.Hour,
                 "Min": TimeFrameUnit.Minute}
     amount = int("".join(c for c in timeframe if c.isdigit()) or "1")
-    unit = next(u for name, u in unit_map.items() if name in timeframe)
+    unit = next((u for name, u in unit_map.items() if name in timeframe), None)
+    if unit is None:
+        raise ValueError(
+            f"unrecognized timeframe {timeframe!r}; expected Day, Hour, or Min "
+            "(e.g. '1Day', '1Hour', '5Min')"
+        )
 
     client = StockHistoricalDataClient(key, secret)
     req = StockBarsRequest(
