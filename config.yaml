@@ -6,7 +6,10 @@ universe:
   # the production Gate even with real IC. For the synthetic demo we use a wide
   # set (SYN00..SYN39); on real data, replace with the full S&P 100.
   names: [SYN00, SYN01, SYN02, SYN03, SYN04, SYN05, SYN06, SYN07, SYN08, SYN09, SYN10, SYN11, SYN12, SYN13, SYN14, SYN15, SYN16, SYN17, SYN18, SYN19, SYN20, SYN21, SYN22, SYN23, SYN24, SYN25, SYN26, SYN27, SYN28, SYN29, SYN30, SYN31, SYN32, SYN33, SYN34, SYN35, SYN36, SYN37, SYN38, SYN39]
-  source: synthetic_drift      # synthetic | synthetic_drift | synthetic_intraday | csv | yfinance | yfinance_intraday | alpaca
+  source: synthetic_drift      # synthetic | synthetic_drift | synthetic_intraday | csv | yfinance | yfinance_intraday | alpaca | alphavantage
+  # For alphavantage intraday: set source: alphavantage, interval: 5min,
+  # outputsize: full, bars_per_day: 78, and export ALPHAVANTAGE_API_KEY.
+  # Free tier is ~5 req/min: `pause: 15` spaces out multi-ticker requests.
 
 frequency:
   # bars_per_day = 1 for daily; e.g. 78 for 5-minute US-session bars.

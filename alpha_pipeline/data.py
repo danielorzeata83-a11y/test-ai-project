@@ -10,8 +10,13 @@ rest of the system is unchanged.
 from __future__ import annotations
 
 import csv
+import json
 import math
+import os
 import random
+import time
+import urllib.parse
+import urllib.request
 from collections import defaultdict
 
 # A price row: (date_str, close, volume)
@@ -153,3 +158,125 @@ def load_yfinance(tickers: tuple[str, ...], period: str = "1y") -> PriceData:
             rows.append((str(ts.date()), float(close), float(vol)))
         out[t] = rows
     return out
+
+
+def load_yfinance_intraday(
+    tickers: tuple[str, ...], period: str = "5d", interval: str = "5m"
+) -> PriceData:
+    """Load intraday bars from yfinance. interval e.g. '1m','5m','15m','60m';
+    note yfinance limits 1m history to ~7 days. Same neutral contract, but the
+    first field is a full timestamp string instead of a date."""
+    try:
+        import yfinance as yf
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError("yfinance is not installed; `pip install yfinance`") from exc
+
+    out: PriceData = {}
+    data = yf.download(
+        list(tickers), period=period, interval=interval,
+        group_by="ticker", progress=False,
+    )
+    for t in tickers:
+        rows: list[PriceRow] = []
+        sub = data[t] if len(tickers) > 1 else data
+        for ts, r in sub.iterrows():
+            close, vol = r.get("Close"), r.get("Volume", 0.0)
+            if close is None or (isinstance(close, float) and math.isnan(close)):
+                continue
+            rows.append((str(ts), float(close), float(vol)))
+        out[t] = rows
+    return out
+
+
+def load_alpaca(
+    tickers: tuple[str, ...], timeframe: str = "1Day", limit: int = 1000,
+) -> PriceData:
+    """Load bars from Alpaca. timeframe e.g. '1Day','1Hour','5Min'. Keys come
+    from APCA_API_KEY_ID / APCA_API_SECRET_KEY. Lazy import of alpaca-py."""
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError("alpaca-py is not installed; `pip install alpaca-py`") from exc
+
+    key = os.environ.get("APCA_API_KEY_ID")
+    secret = os.environ.get("APCA_API_SECRET_KEY")
+    if not key or not secret:
+        raise RuntimeError("set APCA_API_KEY_ID and APCA_API_SECRET_KEY")
+
+    unit_map = {"Day": TimeFrameUnit.Day, "Hour": TimeFrameUnit.Hour,
+                "Min": TimeFrameUnit.Minute}
+    amount = int("".join(c for c in timeframe if c.isdigit()) or "1")
+    unit = next(u for name, u in unit_map.items() if name in timeframe)
+
+    client = StockHistoricalDataClient(key, secret)
+    req = StockBarsRequest(
+        symbol_or_symbols=list(tickers),
+        timeframe=TimeFrame(amount, unit), limit=limit,
+    )
+    bars = client.get_stock_bars(req).data
+    out: PriceData = {}
+    for t in tickers:
+        out[t] = [(str(b.timestamp), float(b.close), float(b.volume))
+                  for b in bars.get(t, [])]
+    return out
+
+
+def load_alphavantage(
+    tickers: tuple[str, ...], interval: str = "5min", outputsize: str = "compact",
+    pause: float = 0.0,
+) -> PriceData:
+    """Load intraday bars from Alpha Vantage (TIME_SERIES_INTRADAY), stdlib only.
+
+    The API key is read from the ALPHAVANTAGE_API_KEY environment variable, never
+    passed in code. interval in {1min,5min,15min,30min,60min}; outputsize
+    'compact' (latest 100 bars) or 'full'. Free tier is rate-limited (~5 req/min,
+    25/day) — set `pause` (e.g. 15) to space out requests for multiple tickers.
+
+    Same neutral contract: {ticker: [(timestamp, close, volume)]} ascending.
+    """
+    api_key = os.environ.get("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "set ALPHAVANTAGE_API_KEY (get a free key at "
+            "https://www.alphavantage.co/support/#api-key)"
+        )
+
+    out: PriceData = {}
+    for idx, t in enumerate(tickers):
+        if idx and pause:
+            time.sleep(pause)  # respect free-tier rate limit
+        params = urllib.parse.urlencode({
+            "function": "TIME_SERIES_INTRADAY",
+            "symbol": t,
+            "interval": interval,
+            "outputsize": outputsize,
+            "apikey": api_key,
+        })
+        url = f"https://www.alphavantage.co/query?{params}"
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            payload = json.load(resp)
+        out[t] = _parse_alphavantage(t, payload, interval)
+    return out
+
+
+def _parse_alphavantage(ticker: str, payload: dict, interval: str) -> list[PriceRow]:
+    """Turn an Alpha Vantage intraday response into ascending PriceRows. Raises a
+    clear error on rate-limit / error notes instead of returning empty data."""
+    if "Note" in payload or "Information" in payload:
+        raise RuntimeError(
+            f"Alpha Vantage throttled/limited for {ticker}: "
+            f"{payload.get('Note') or payload.get('Information')}"
+        )
+    if "Error Message" in payload:
+        raise RuntimeError(f"Alpha Vantage error for {ticker}: {payload['Error Message']}")
+    series = payload.get(f"Time Series ({interval})")
+    if not series:
+        raise RuntimeError(f"Alpha Vantage returned no series for {ticker}: {payload}")
+    rows = [
+        (ts, float(bar["4. close"]), float(bar["5. volume"]))
+        for ts, bar in series.items()
+    ]
+    rows.sort(key=lambda r: r[0])  # API returns newest-first; we want ascending
+    return rows

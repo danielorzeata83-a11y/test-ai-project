@@ -55,6 +55,10 @@ def make_loader(cfg: Config, days: int, seed: int):
     if source == "alpaca":
         return lambda: datamod.load_alpaca(
             universe, timeframe=u.get("timeframe", "1Day"))
+    if source == "alphavantage":
+        return lambda: datamod.load_alphavantage(
+            universe, interval=u.get("interval", "5min"),
+            outputsize=u.get("outputsize", "full"), pause=u.get("pause", 15.0))
     raise ValueError(f"unknown source {source!r}")
 
 

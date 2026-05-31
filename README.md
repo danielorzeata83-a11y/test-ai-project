@@ -92,6 +92,27 @@ export APCA_API_KEY_ID=...  APCA_API_SECRET_KEY=...
 python run.py
 ```
 
+**Alpha Vantage (intraday, no extra dependency — uses stdlib):**
+
+```yaml
+# config.yaml
+universe:
+  source: alphavantage
+  interval: 5min              # 1min | 5min | 15min | 30min | 60min
+  outputsize: full            # 'full' history or 'compact' (latest 100 bars)
+  pause: 15                   # seconds between tickers (free tier ~5 req/min)
+frequency:
+  bars_per_day: 78
+```
+
+```bash
+export ALPHAVANTAGE_API_KEY=...   # free key: alphavantage.co/support/#api-key
+python run.py
+```
+
+Note the free tier is rate-limited (~5 requests/min, ~25/day), so a wide
+universe needs either the `pause` spacing above or a premium key.
+
 **Why `bars_per_day` matters.** Every annualized number (Sharpe, Deflated
 Sharpe, vol target) scales by `periods_per_year = 252 * bars_per_day`. Set it
 correctly or intraday Sharpes come out wildly inflated. Daily = 1; 5-minute US

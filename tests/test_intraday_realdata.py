@@ -105,5 +105,50 @@ class TestCsvRealDataContract(unittest.TestCase):
         self.assertEqual(len(set(SP100)), len(SP100))  # no duplicates
 
 
+class TestAlphaVantageParsing(unittest.TestCase):
+    """Validate the Alpha Vantage response parsing offline (no network), proving
+    it produces the same neutral contract."""
+
+    def test_parses_intraday_payload_ascending(self):
+        from alpha_pipeline.data import _parse_alphavantage
+
+        payload = {
+            "Meta Data": {"2. Symbol": "IBM"},
+            "Time Series (5min)": {  # API returns newest-first
+                "2024-01-02 16:00:00": {"4. close": "102.0", "5. volume": "300"},
+                "2024-01-02 15:55:00": {"4. close": "101.0", "5. volume": "200"},
+                "2024-01-02 15:50:00": {"4. close": "100.0", "5. volume": "100"},
+            },
+        }
+        rows = _parse_alphavantage("IBM", payload, "5min")
+        self.assertEqual([r[0] for r in rows], [
+            "2024-01-02 15:50:00", "2024-01-02 15:55:00", "2024-01-02 16:00:00",
+        ])  # sorted ascending
+        self.assertEqual(rows[0], ("2024-01-02 15:50:00", 100.0, 100.0))
+
+    def test_rate_limit_note_raises(self):
+        from alpha_pipeline.data import _parse_alphavantage
+
+        with self.assertRaises(RuntimeError):
+            _parse_alphavantage("IBM", {"Note": "5 calls/min limit reached"}, "5min")
+
+    def test_error_message_raises(self):
+        from alpha_pipeline.data import _parse_alphavantage
+
+        with self.assertRaises(RuntimeError):
+            _parse_alphavantage("BADSYM", {"Error Message": "invalid symbol"}, "5min")
+
+    def test_missing_key_raises(self):
+        from alpha_pipeline.data import load_alphavantage
+
+        old = os.environ.pop("ALPHAVANTAGE_API_KEY", None)
+        try:
+            with self.assertRaises(RuntimeError):
+                load_alphavantage(("IBM",))
+        finally:
+            if old is not None:
+                os.environ["ALPHAVANTAGE_API_KEY"] = old
+
+
 if __name__ == "__main__":
     unittest.main()
