@@ -34,5 +34,11 @@ class Registry:
         self._save()
 
     def _save(self) -> None:
-        with open(self.path, "w") as f:
+        # Atomic write: a crash mid-dump must not corrupt the source of truth
+        # for which alphas are live.
+        tmp = f"{self.path}.tmp"
+        with open(tmp, "w") as f:
             json.dump(self.promoted, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.path)

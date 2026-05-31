@@ -103,7 +103,7 @@ session = 78.
 
 ## Layout
 
-```
+```text
 alpha_pipeline/   contracts, journal, analyst, signal, risk, regime,
                   execution, orchestrator, registry, gate, evaluate,
                   alphas, data, config, monitor

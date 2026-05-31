@@ -46,6 +46,13 @@ class TestRiskControls(unittest.TestCase):
         safe = bot.run(tw, self.state, self.panel)
         self.assertAlmostEqual(safe.net_exposure, 0.0, places=6)
 
+    def test_neutrality_does_not_breach_cap(self):
+        # Re-centering a skewed book must not push any name past max_position.
+        bot = RiskBot(RiskConfig(max_position=0.05, target_vol=10.0))
+        tw = TargetWeights("d1", {"T00": 0.05, "T01": 0.05, "T02": 0.05, "T03": -0.05})
+        safe = bot.run(tw, self.state, self.panel)
+        self.assertLessEqual(max(abs(x) for x in safe.weights.values()), 0.05 + 1e-9)
+
     def test_gross_cap(self):
         bot = RiskBot(RiskConfig(max_position=1.0, max_gross=1.0, target_vol=10.0))
         tw = TargetWeights("d1", {"T00": 0.9, "T01": -0.9})  # gross 1.8

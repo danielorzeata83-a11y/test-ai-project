@@ -40,7 +40,8 @@ class SignalBot:
         combined = {t: agg[t] / len(active) for t in tickers}
 
         ranked = sorted(tickers, key=lambda t: combined[t])
-        n = max(1, int(len(ranked) * self.top_frac))
+        # Clamp to half the universe so longs and shorts never overlap.
+        n = max(1, min(int(len(ranked) * self.top_frac), len(ranked) // 2))
         shorts, longs = ranked[:n], ranked[-n:]
 
         weights: dict[str, float] = {}

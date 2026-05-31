@@ -117,6 +117,18 @@ class TestSignalBot(unittest.TestCase):
         tw = bot.run(panel)
         self.assertEqual(tw.weights, {})
 
+    def test_high_top_frac_no_overlap(self):
+        # top_frac > 0.5 must not make longs and shorts overlap.
+        reg = Registry(os.path.join(tempfile.mkdtemp(), "reg.json"))
+        reg.promote("momentum", {})
+        bot = SignalBot(reg, top_frac=0.8)
+        panel = AnalystBot(UNIVERSE, lambda: signal_prices()).run(LAST)
+        tw = bot.run(panel)
+        longs = {t for t, w in tw.weights.items() if w > 0}
+        shorts = {t for t, w in tw.weights.items() if w < 0}
+        self.assertEqual(longs & shorts, set())  # disjoint
+        self.assertAlmostEqual(tw.net, 0.0, places=6)
+
 
 class TestEndToEnd(unittest.TestCase):
     def test_full_chain_with_registry(self):

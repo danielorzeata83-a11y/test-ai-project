@@ -39,12 +39,16 @@ class AnalystBot:
         self.loader = loader
         self.min_coverage = min_coverage
         self.max_return_spike = max_return_spike
-        self.min_history = min_history
+        # Features need a 63-day window (closes[-64]); never go below that.
+        self.min_history = max(min_history, 64)
 
     def run(self, date: str) -> FeaturePanel:
-        # fail-soft: a loader failure (e.g. network) must not crash the system.
+        # fail-soft on data-source problems (network, bad rows), fail-hard on
+        # programmer bugs (TypeError etc.) so real defects surface, not hide.
         try:
             prices = self.loader()
+        except (TypeError, AttributeError, NameError, KeyError, IndexError):
+            raise  # programmer bug -> propagate -> Orchestrator halts
         except Exception as exc:
             return self._invalid(date, {"error": f"loader failed: {exc!r}"})
 
@@ -59,7 +63,12 @@ class AnalystBot:
                 excluded[t] = f"insufficient history ({len(rows)})"
                 continue
 
-            feats = self._features(rows)
+            try:
+                feats = self._features(rows)
+            except (ZeroDivisionError, ValueError, TypeError) as exc:
+                # One malformed ticker must not sink the whole panel.
+                excluded[t] = f"feature extraction error: {exc}"
+                continue
             if feats is None:
                 excluded[t] = "non-finite feature"
                 continue

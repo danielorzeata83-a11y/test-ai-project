@@ -64,6 +64,10 @@ class RiskBot:
             net = sum(w.values())
             adj = net / len(w)
             w = {t: x - adj for t, x in w.items()}
+            # Re-centering can push a name back past the cap; clamp again so the
+            # per-position limit always holds after neutralization.
+            w = {t: max(-cfg.max_position, min(cfg.max_position, x))
+                 for t, x in w.items()}
             if abs(net) > 1e-9:
                 actions.append("re-centered to dollar-neutral")
 
@@ -103,16 +107,19 @@ class RiskBot:
     # --- helpers ---------------------------------------------------------
 
     def _crisis_probability(self, panel: FeaturePanel) -> float | None:
-        """Cross-sectional mean ret_1d is a crude market return; without a real
-        return history we use the dispersion of ret_1d as a stress proxy. If the
-        panel carries a market return series in metadata, fit the HMM on it."""
+        """Crisis probability from an HMM fit on the market return series in
+        panel.metadata["market_returns"]. If that series is absent or too short,
+        return None and the overlay is simply not applied. But if the series is
+        present and the fit *fails*, fail-closed: treat it as full crisis (1.0)
+        so model uncertainty reduces risk rather than silently dropping the
+        control."""
         series = panel.metadata.get("market_returns")
         if series and len(series) >= self.cfg.min_history_for_regime:
             try:
                 hmm = RegimeHMM().fit(list(series))
                 return hmm.crisis_probabilities(list(series))[-1]
             except Exception:
-                return None
+                return 1.0  # fail-closed: assume crisis on model failure
         return None
 
     def _portfolio_vol(self, weights, panel: FeaturePanel) -> float:

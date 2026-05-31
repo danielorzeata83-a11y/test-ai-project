@@ -94,11 +94,17 @@ def run(cfg: Config, days: int, seed: int, workdir: str):
         g["periods_per_year"] = ppy
         gcfg = GateConfig(**{k: g[k] for k in g if k in GateConfig.__dataclass_fields__})
         for name, fn in ALPHAS.items():
-            if evaluate_alpha(prices, fn, name, registry, gcfg).passed:
-                registry.promote(name, {})
+            res = evaluate_alpha(prices, fn, name, registry, gcfg)
+            if res.passed:
+                registry.promote(name, {k: round(v, 6) for k, v in res.metrics.items()})
 
-    warmup = cfg.section("analyst")["min_history"]
+    # Analyst clamps min_history to >=64; mirror that for the warmup window.
+    warmup = max(cfg.section("analyst")["min_history"], 64)
     initial = cfg.section("portfolio")["initial_cash"]
+    if len(dates) <= warmup + 1:
+        raise ValueError(
+            f"need more than {warmup + 1} dates for warmup, got {len(dates)}"
+        )
     with Journal(os.path.join(workdir, "journal.db")) as journal:
         orch = build_system(cfg, prices, journal, registry)
         state = PortfolioState.initial(dates[warmup], initial)
