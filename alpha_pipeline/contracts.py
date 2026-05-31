@@ -13,10 +13,21 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Mapping
 
 # Tolerance for declared-vs-actual exposure checks (floating point slack).
 _EXPOSURE_TOL = 1e-6
+
+
+def _freeze(m: Mapping) -> MappingProxyType:
+    """Read-only shallow copy: callers can't mutate our internal mapping."""
+    return MappingProxyType(dict(m))
+
+
+def _freeze_nested(m: Mapping[str, Mapping]) -> MappingProxyType:
+    """Read-only copy of a mapping-of-mappings (e.g. ticker -> features)."""
+    return MappingProxyType({k: MappingProxyType(dict(v)) for k, v in m.items()})
 
 
 def _check_finite(name: str, value: float) -> None:
@@ -59,6 +70,8 @@ class FeaturePanel:
         for t, feats in self.data.items():
             for fname, fval in feats.items():
                 _check_finite(f"{t}.{fname}", fval)
+        object.__setattr__(self, "data", _freeze_nested(self.data))
+        object.__setattr__(self, "metadata", _freeze(self.metadata))
 
     def to_dict(self) -> dict:
         return {
@@ -97,6 +110,7 @@ class TargetWeights:
         for t, w in self.weights.items():
             _check_ticker(t)
             _check_finite(f"weight[{t}]", w)
+        object.__setattr__(self, "weights", _freeze(self.weights))
 
     @property
     def gross(self) -> float:
@@ -156,6 +170,7 @@ class SafeWeights:
             )
         if not isinstance(self.risk_actions, tuple):
             raise ValueError("risk_actions must be a tuple")
+        object.__setattr__(self, "weights", _freeze(self.weights))
 
     def to_dict(self) -> dict:
         return {
@@ -252,6 +267,7 @@ class PortfolioState:
             _check_finite(f"position[{t}]", q)
         if self.peak_nav < self.nav - _EXPOSURE_TOL:
             raise ValueError("peak_nav cannot be below nav")
+        object.__setattr__(self, "positions", _freeze(self.positions))
 
     @property
     def drawdown(self) -> float:

@@ -125,6 +125,33 @@ class TestContractValidation(unittest.TestCase):
             SafeWeights("2024-01-01", w, gross_exposure=1.0, net_exposure=5.0)
 
 
+class TestContractImmutability(unittest.TestCase):
+    def test_mappings_are_read_only(self):
+        import types
+
+        panel = FeaturePanel(
+            "d1", ("AAPL",), {"AAPL": {"close": 100.0}}, True, metadata={"k": 1}
+        )
+        tw = TargetWeights("d1", {"AAPL": 0.5})
+        sw = SafeWeights("d1", {"AAPL": 0.5}, 0.5, 0.5)
+        ps = PortfolioState("d1", 100.0, {"AAPL": 1.0}, 200.0, 200.0)
+
+        for m in (panel.data, panel.data["AAPL"], panel.metadata,
+                  tw.weights, sw.weights, ps.positions):
+            self.assertIsInstance(m, types.MappingProxyType)
+            with self.assertRaises(TypeError):
+                m["x"] = 1  # cannot mutate
+
+    def test_caller_dict_mutation_does_not_leak(self):
+        # Mutating the source dict after construction must not change the
+        # contract (it stored a copy, not the caller's reference).
+        src = {"AAPL": 0.5}
+        tw = TargetWeights("d1", src)
+        src["AAPL"] = 999.0
+        src["MSFT"] = 1.0
+        self.assertEqual(dict(tw.weights), {"AAPL": 0.5})
+
+
 class TestJournalReplay(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
